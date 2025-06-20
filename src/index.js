@@ -1,12 +1,13 @@
 import express from "express";
 import dotenv from "dotenv";
 import connectDB from "./db/index.js";
-
+import userRouter from "./routes/user.routes.js";
+import {app} from './app.js'
 // Load environment variables
-dotenv.config({ path: './.env' });
-
-// Initialize express app
-const app = express();
+dotenv.config({ 
+  path: './.env' 
+});
+app.use("/api/v1/users", userRouter);
 
 console.log("Loading connectDB...");
 
