@@ -7,7 +7,7 @@ import {app} from './app.js'
 dotenv.config({ 
   path: './.env' 
 });
-app.use("/api/v1/users", userRouter);
+
 
 console.log("Loading connectDB...");
 
