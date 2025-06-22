@@ -260,7 +260,7 @@ const updateAccountDetails=asyncHandler(async(req,res)=>{
       .json(new ApiResponse(200,user,"Account details updated successfully"))
      } );
      //updateAvatarimage//
-     const updateuserAvatar=asyncHandler(async(req,res)=>{
+     const updateUserAvatar=asyncHandler(async(req,res)=>{
       const avatarLocalPath=req.file?.path
       if(!avatarLocalPath){
 
@@ -288,7 +288,7 @@ const updateAccountDetails=asyncHandler(async(req,res)=>{
         new ApiResponse(200,user,"Avatar image updated successfully"))
      })
      //updateuserCoverimage//
-      const updateuserCoverImage=asyncHandler(async(req,res)=>{
+      const updateUserCoverImage=asyncHandler(async(req,res)=>{
       const coverImageLocalPath=req.file?.path
       if(!coverImageLocalPath){
 
@@ -449,8 +449,8 @@ export {
    changeCurrentPassword,
    getCurrentUser,
    updateAccountDetails,
-   updateuserAvatar,
-   updateuserCoverImage,
+   updateUserAvatar,
+   updateUserCoverImage,
    getUserChannelProfile,
    getWatchHistory
   };
