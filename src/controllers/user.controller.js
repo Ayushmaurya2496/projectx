@@ -4,21 +4,48 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import path from "path";
+import jwt from "jsonwebtoken";
 
+import mongoose from "mongoose";
+
+// ✅ Token generate karne ka function
+const generateAccessAndRefereshTokens  = async (userId) => {
+  try {
+    const user = await User.findById(userId);
+
+    const accessToken = user.generateAccessToken(); // spelling fix
+    const refreshToken = user.generateRefreshToken();
+
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false });
+
+    return { accessToken, refreshToken };
+  } catch (error) {
+    throw new ApiError(500, "Error generating access and refresh token");
+  }
+};
+
+// ✅ User registration
+// get user details from frontend
+    // validation -not empty
+    // check if user already exists: username, email
+    // check for images,check for avatar
+    // upload them to cloudinary,avatar
+    // create user object -create entry in db
+    // remove password and refresh token field from response
+    // check for user creation
+    // return res
 const registerUser = asyncHandler(async (req, res) => {
   console.log("✅ Register route hit");
-
-  // Step 1: Extract form fields from req.body
   const { fullName, email, username, password } = req.body;
   console.log("📥 Form Data:", req.body);
   console.log("📎 Uploaded Files:", req.files);
-
-  // Step 2: Validate required fields
+  // Validation
   if ([fullName, email, username, password].some((field) => !field?.trim())) {
     throw new ApiError(400, "All fields are required");
   }
 
-  // Step 3: Check for duplicate user
+  // Duplicate check
   const existedUser = await User.findOne({
     $or: [{ username }, { email }],
   });
@@ -27,29 +54,32 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(409, "User with same username or email already exists");
   }
 
-  // Step 4: Get file paths (make sure multer is working)
-  const avatarLocalPath = path.resolve(req.files?.avatar?.[0]?.path || "");
-  const coverImageLocalPath = path.resolve(req.files?.coverImage?.[0]?.path || "");
-
+  // File paths by multer
+  const avatarLocalPath = req.files?.avatar?.[0]?.path;
+  const coverImageLocalPath = req.files?.coverImage?.[0]?.path;
 
   if (!avatarLocalPath) {
     throw new ApiError(400, "Avatar file is required");
   }
 
-  // Step 5: Upload to Cloudinary
+  // Uploading images
   console.log("☁️ Uploading avatar...");
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
-  console.log("✅ Avatar uploaded:", avatar?.url);
-
-  console.log("☁️ Uploading cover image...");
-  const coverImage = await uploadOnCloudinary(coverImageLocalPath);
-  console.log("✅ Cover image uploaded:", coverImage?.url);
-
-  if (!avatar) {
+  const avatar = await uploadOnCloudinary(path.resolve(avatarLocalPath));
+  
+  if (!avatar?.url) {
     throw new ApiError(400, "Failed to upload avatar image");
   }
 
-  // Step 6: Create user in DB
+  console.log("✅ Avatar uploaded:", avatar.url);
+
+  let coverImage = null;
+  if (coverImageLocalPath) {
+    console.log("☁️ Uploading cover image...");
+    coverImage = await uploadOnCloudinary(path.resolve(coverImageLocalPath));
+    console.log("✅ Cover image uploaded:", coverImage?.url);
+  }
+
+  // Create user
   const user = await User.create({
     fullName,
     email,
@@ -59,17 +89,136 @@ const registerUser = asyncHandler(async (req, res) => {
     coverImage: coverImage?.url || "",
   });
 
-  // Step 7: Remove sensitive fields before sending response
+  // Remove sensitive fields
   const createdUser = await User.findById(user._id).select("-password -refreshToken");
-
-  if (!createdUser) {
-    throw new ApiError(500, "Something went wrong while registering the user");
-  }
-
-  // Step 8: Send response
-  return res.status(201).json(
-    new ApiResponse(201, createdUser, "User registered successfully ✅")
-  );
+// req body -> data
+    // username or email
+    //find the user
+    //password check
+    //access and referesh token
+    //send cookie
+  return res
+    .status(201)
+    .json(new ApiResponse(201, createdUser, "User registered successfully"));
 });
 
-export { registerUser };
+// ✅ User login
+const loginUser = asyncHandler(async (req, res) =>{
+    // req body -> data
+    // username or email
+    //find the user
+    //password check
+    //access and referesh token
+    //send cookie
+
+    const {email, username, password} = req.body
+    console.log(email);
+
+    if (!username && !email) {
+        throw new ApiError(400, "username or email is required")
+    }
+    
+    // Here is an alternative of above code based on logic discussed in video:
+    // if (!(username || email)) {
+    //     throw new ApiError(400, "username or email is required")
+        
+    // }
+
+    const user = await User.findOne({
+        $or: [{username}, {email}]
+    })
+
+    if (!user) {
+        throw new ApiError(404, "User does not exist")
+    }
+
+   const isPasswordValid = await user.isPasswordCorrect(password)
+
+   if (!isPasswordValid) {
+    throw new ApiError(401, "Invalid user credentials")
+    }
+
+   const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id)
+
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
+
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+    return res
+    .status(200)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
+    .json(
+        new ApiResponse(
+            200, 
+            {
+                user: loggedInUser, accessToken, refreshToken
+            },
+            "User logged In Successfully"
+        )
+    )
+
+})
+
+// ✅ Logout
+const logoutUser = asyncHandler(async(req, res) => {
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            $unset: {
+                refreshToken: 1 // this removes the field from document
+            }
+        },
+        {
+            new: true
+        }
+    )
+
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+    return res
+    .status(200)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(new ApiResponse(200, {}, "User logged Out"))
+})
+const refreshAccessToken=asyncHandler(async(req,res)=>{
+  const incomingRefreshToken=req.cookies
+  .refreshToken||req.body.refreshToken
+  if(incomingRefreshToken){
+    throw new ApiError(401,"unauthorized request")
+  }
+   try {
+    const decodedToken=jwt.verify(
+     incomingRefreshToken,
+     process.env.REFRESH_TOKEN_SECRET
+    )
+   const user=await User.findById(decodedToken?._id)
+   if(!user){
+     throw new ApiError(401,"Invalid refresh token")
+ 
+    }
+   if(incomingRefreshToken!==user?.refreshToken){
+     throw new ApiError(401," refresh token is invalid or used ")
+    }
+   const options={
+     httpOnly:true,
+     secure:true
+    }
+   const {accessToken,newrefreshToken}=await generateAccessAndRefereshTokens(user._id)
+   return res
+   .status(200)
+   .cookie("accessToken",accessToken,options)
+   .cookie("refreshToken",newrefreshToken,options)
+  .json(new ApiResponse(200, { accessToken, refreshToken: newrefreshToken, message: "Access token refreshed successfully" }))
+      } catch (error) {
+        throw new ApiError(401,error?.message||"Invalid refresh token")
+    }
+})
+export { registerUser, loginUser, logoutUser,refreshAccessToken };
